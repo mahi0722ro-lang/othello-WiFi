@@ -1,1 +1,119 @@
-
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OTHELLO // CYBER ARENA</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#070b14;color:#e9faff;font-family:Arial,sans-serif;text-align:center}
+header{padding:22px 10px;background:#101a2b;border-bottom:2px solid #00eaff}
+h1{margin:0;color:#00eaff;text-shadow:0 0 15px #00eaff;letter-spacing:3px}
+main{max-width:520px;margin:auto;padding:16px}
+.panel{background:#111b2b;border:1px solid #00aaff;border-radius:12px;padding:15px;margin:12px 0}
+input,button{font-size:16px;padding:12px;border-radius:8px;border:1px solid #00cfff;margin:5px;background:#071321;color:white}
+button{background:#073b50;cursor:pointer}
+button:hover{background:#08708a}
+#board{display:grid;grid-template-columns:repeat(8,1fr);gap:3px;background:#00aaff;padding:4px;border-radius:8px;max-width:440px;margin:16px auto}
+.cell{aspect-ratio:1;background:#087b69;display:flex;align-items:center;justify-content:center;cursor:pointer;border:0;padding:2px;margin:0;border-radius:2px}
+.disc{width:82%;height:82%;border-radius:50%;box-shadow:0 2px 5px #001}
+.black{background:#10131a;border:2px solid #9ba9b9}
+.white{background:#fff;border:2px solid #b9d9e8}
+#status{color:#ffe66d;min-height:24px}
+small{color:#9fb4cc}
+</style>
+</head>
+<body>
+<header><h1>OTHELLO</h1><small>CYBER ARENA // TWO PLAYER</small></header>
+<main>
+<section class="panel">
+<h3>オンライン対戦</h3>
+<input id="room" placeholder="部屋番号（例: 1234）">
+<input id="pass" placeholder="部屋パスワード" type="password">
+<br>
+<button onclick="createRoom()">部屋を作る</button>
+<button onclick="joinRoom()">部屋に参加</button>
+<p id="connection">未接続</p>
+<small>オンライン対戦にはサーバーの公開が必要です。</small>
+</section>
+<section class="panel">
+<p id="status">黒の番です</p>
+<p>黒：<b id="bc">2</b>　白：<b id="wc">2</b></p>
+<div id="board"></div>
+<button onclick="resetGame()">ゲームをリセット</button>
+</section>
+</main>
+<script>
+const boardEl=document.getElementById('board');
+let board,turn=1,ws=null,roomCode='',password='',myColor=0;
+function initial(){
+ board=Array(64).fill(0);
+ board[27]=-1;board[28]=1;board[35]=1;board[36]=-1;
+ turn=1;render();
+}
+function moves(i,color,b=board){
+ if(b[i]!==0)return [];
+ let x=i%8,y=Math.floor(i/8),all=[];
+ for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+  if(!dx&&!dy)continue;
+  let xx=x+dx,yy=y+dy,line=[];
+  while(xx>=0&&xx<8&&yy>=0&&yy<8&&b[yy*8+xx]===-color){
+   line.push(yy*8+xx);xx+=dx;yy+=dy;
+  }
+  if(line.length&&xx>=0&&xx<8&&yy>=0&&yy<8&&b[yy*8+xx]===color)all.push(...line);
+ }
+ return [...new Set(all)];
+}
+function play(i){
+ if(board[i]!==0)return;
+ if(ws&&ws.readyState===1&&myColor!==turn)return;
+ const flips=moves(i,turn);
+ if(!flips.length)return;
+ board[i]=turn;flips.forEach(j=>board[j]=turn);
+ turn=-turn;
+ if(!hasMove(turn)&&hasMove(-turn))turn=-turn;
+ render();
+ if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'move',room:roomCode,board,turn}));
+}
+function hasMove(c){return board.some((v,i)=>v===0&&moves(i,c).length)}
+function render(){
+ boardEl.innerHTML='';
+ board.forEach((v,i)=>{
+  const c=document.createElement('button');c.className='cell';
+  if(v){const d=document.createElement('span');d.className='disc '+(v===1?'black':'white');c.appendChild(d)}
+  else if(moves(i,turn).length){c.style.boxShadow='inset 0 0 0 2px #baff75'}
+  c.onclick=()=>play(i);boardEl.appendChild(c);
+ });
+ const black=board.filter(v=>v===1).length,white=board.filter(v=>v===-1).length;
+ document.getElementById('bc').textContent=black;
+ document.getElementById('wc').textContent=white;
+ document.getElementById('status').textContent=hasMove(turn)?(turn===1?'黒の番です':'白の番です'):(black>white?'黒の勝ち！':white>black?'白の勝ち！':'引き分け！');
+}
+function resetGame(){initial();if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'reset',room:roomCode}))}
+function connect(action){
+ roomCode=document.getElementById('room').value.trim();
+ password=document.getElementById('pass').value;
+ if(!roomCode||!password){alert('部屋番号とパスワードを入力してね');return}
+ // Renderで公開したサーバーのURLに変更してください
+ const server=prompt('公開したWebSocketサーバーURLを入力（例: wss://あなたのサービス.onrender.com）');
+ if(!server)return;
+ try{ws=new WebSocket(server)}
+ catch(e){alert('サーバーURLを確認してね');return}
+ document.getElementById('connection').textContent='接続中...';
+ ws.onopen=()=>ws.send(JSON.stringify({type:action,room:roomCode,password}));
+ ws.onmessage=e=>{
+  let d;try{d=JSON.parse(e.data)}catch{return}
+  if(d.type==='error'){alert(d.message||'接続エラー');return}
+  if(d.type==='joined'){myColor=d.color;document.getElementById('connection').textContent='接続成功：'+(myColor===1?'黒':'白');}
+  if(d.board){board=d.board;turn=d.turn;render()}
+  if(d.type==='start')document.getElementById('connection').textContent='対戦相手が参加しました';
+ };
+ ws.onerror=()=>document.getElementById('connection').textContent='接続エラー：サーバー設定を確認';
+ ws.onclose=()=>document.getElementById('connection').textContent='切断されました';
+}
+function createRoom(){connect('create')}
+function joinRoom(){connect('join')}
+initial();
+</script>
+</body>
+</html>
